@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Predicción con TensorFlow.js</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+  </head>
+  <body>
+    <h1>Predicción con TensorFlow.js</h1>
+
+    <div class="section">
+      <button id="btnTrain" class="btn">Entrenar Modelo</button>
+    </div>
+
+    <div class="section">
+      <h2>Gráfica de Pérdida durante el Entrenamiento</h2>
+      <div class="chart-container">
+        <canvas id="lossChart"></canvas>
+      </div>
+      <div id="lossStats" class="stats">
+        Pérdida inicial: -, Pérdida final: - (Reducción: -%)
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Predicción</h2>
+      <div class="input-group">
+        <label>Valores de X (separados por comas):</label>
+        <input type="text" id="inputX" value="10, 20, 25" />
+        <button id="btnPredict" class="btn" disabled>Predecir</button>
+      </div>
+
+      <div class="results-box">
+        <div id="statusText" class="status-text">
+          Estado: Esperando entrenamiento...
+        </div>
+        <h3>Resultados:</h3>
+        <ul id="resultsList"></ul>
+      </div>
+    </div>
+
+    <script>
+      // --- 1. CONFIGURACIÓN DE CHART.JS ---
+      const epochValues = [];
+      const lossValues = [];
+      const ctx = document.getElementById("lossChart").getContext("2d");
+      const lossChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: epochValues,
+          datasets: [
+            {
+              label: "Pérdida (Loss)",
+              data: lossValues,
+              borderColor: "#4bc0c0", // Color esmeralda/teal de la imagen
+              backgroundColor: "rgba(75, 192, 192, 0.1)",
+              borderWidth: 2,
+              pointRadius: 2,
+              fill: true,
+              tension: 0.2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          animation: { duration: 0 },
+          scales: {
+            x: { title: { display: true, text: "Época" } },
+            y: { title: { display: true, text: "Valor de Pérdida" } },
+          },
+        },
+      });
+
+      // --- 2. CONFIGURACIÓN DEL MODELO ---
+      let model;
+      let initialLoss = 0;
+
+      // Datos de entrenamiento (Relación aprox y = 1.8x)
+      //CAMBIADO
+      const xsTrain = tf.tensor2d([1, 2, 3, 4,], [4,1]);
+      const ysTrain = tf.tensor2d(
+        [11, 12, 13, 14,] ,[4, 1]
+      );
+
+      // Elementos del DOM
+      const btnTrain = document.getElementById("btnTrain");
+      const btnPredict = document.getElementById("btnPredict");
+      const lossStats = document.getElementById("lossStats");
+      const statusText = document.getElementById("statusText");
+      const resultsList = document.getElementById("resultsList");
+      const inputX = document.getElementById("inputX");
+
+      // --- 3. LÓGICA DE ENTRENAMIENTO ---
+      btnTrain.addEventListener("click", async () => {
+        // Preparar UI
+        btnTrain.disabled = true;
+        btnPredict.disabled = true;
+        statusText.innerText = "Estado: Entrenando modelo...";
+        resultsList.innerHTML = "";
+
+        // Limpiar gráfica anterior
+        epochValues.length = 0;
+        lossValues.length = 0;
+        lossChart.update();
+
+        // Crear modelo nuevo (para resetear pesos si se entrena varias veces)
+        model = tf.sequential();
+        model.add(tf.layers.dense({ units: 1, inputShape: [1] }));
+        model.compile({
+          loss: "meanSquaredError",
+          optimizer: tf.train.adam(0.05),
+        });
+
+        // Entrenar
+        await model.fit(xsTrain, ysTrain, {
+          epochs: 1500,
+          callbacks: {
+            onEpochEnd: (epoch, logs) => {
+              epochValues.push(epoch);
+              lossValues.push(logs.loss);
+              lossChart.update();
+
+              if (epoch === 0) initialLoss = logs.loss;
+
+              // Actualizar texto de estadísticas en la última época
+              if (epoch === 99) {
+                const finalLoss = logs.loss;
+                const reduction =
+                  ((initialLoss - finalLoss) / initialLoss) * 100;
+                lossStats.innerText = `Pérdida inicial: ${initialLoss.toFixed(4)}, Pérdida final: ${finalLoss.toFixed(4)} (Reducción: ${reduction.toFixed(2)}%)`;
+              }
+            },
+          },
+        });
+
+        // Finalizar UI
+        statusText.innerText = "Estado: Modelo entrenado correctamente";
+        btnTrain.disabled = false;
+        btnPredict.disabled = false;
+      });
+
+      // --- 4. LÓGICA DE PREDICCIÓN ---
+      btnPredict.addEventListener("click", () => {
+        // Obtener el string, separarlo por comas, limpiar espacios y convertir a números
+        const inputValues = inputX.value
+          .split(",")
+          .map((val) => parseFloat(val.trim()));
+
+        // Limpiar lista anterior
+        resultsList.innerHTML = "";
+
+        // Predecir para cada valor
+        inputValues.forEach((val) => {
+          if (!isNaN(val)) {
+            // Convertir el número a un tensor 2D de [1, 1]
+            const inputTensor = tf.tensor2d([val], [1, 1]);
+            // Hacer la predicción sincrona para pintar en UI
+            const prediction = model.predict(inputTensor);
+            const resultValue = prediction.dataSync()[0];
+
+            // Agregar el LI al HTML
+            const li = document.createElement("li");
+            li.innerHTML = `Para x = <strong>${val}</strong>: y = <strong>${resultValue.toFixed(2)}</strong>`;
+            resultsList.appendChild(li);
+
+            // Liberar memoria del tensor
+            inputTensor.dispose();
+            prediction.dispose();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
